@@ -1,5 +1,5 @@
--- GROW A GARDEN 2 MONITOR - SeedShop + UI-based Weather, /api/data2, single-pass scraping
-print("🌱 Starting GaG2 Monitor (SeedShop + Weather) with single-pass scraping...")
+-- GROW A GARDEN 2 MONITOR - SeedShop + GearShop + UI-based Weather, /api/data2, single-pass scraping
+print("🌱 Starting GaG2 Monitor (Seed + Gear + Weather) with single-pass scraping...")
 
 -- Configuration
 local API_ENDPOINT = "http://204.12.233.39:3000/api/data2"
@@ -21,7 +21,8 @@ local Cache = {
     lastDiscordUpdate = 0,
     currentWeather = "None",
     weatherDuration = 0,
-    seeds = {}
+    seeds = {},
+    gear = {}
 }
 
 -- UI element patterns to ignore
@@ -82,7 +83,7 @@ local function autoDeleteOnCrash()
 end
 
 -- Find the scroll container inside a shop UI, class-agnostic.
--- GaG2 path: SeedShop.Frame.NormalShop  (NormalShop may be Frame OR ScrollingFrame)
+-- GaG2 path: <Shop>.Frame.NormalShop  (NormalShop may be Frame OR ScrollingFrame)
 local function findContainer(shopUI)
     local frame = shopUI:FindFirstChild("Frame")
     if frame then
@@ -153,6 +154,7 @@ end
 -- COLLECT ALL DATA
 local function collectAllData()
     local seeds = collectShop("SeedShop")
+    local gear = collectShop("GearShop")
     local weather = getActiveWeather()
 
     local data = {
@@ -162,14 +164,17 @@ local function collectAllData()
         playerName = LocalPlayer.Name,
         userId = LocalPlayer.UserId,
         weather = {type = weather, duration = 0},
-        seeds = seeds
+        seeds = seeds,
+        gear = gear
     }
 
     Cache.currentWeather = weather
 
-    local count = 0
-    for _ in pairs(seeds) do count = count + 1 end
-    print("📊 DATA FOUND: Seeds:" .. (count > 0 and (count .. " items") or "NONE")
+    local seedCount, gearCount = 0, 0
+    for _ in pairs(seeds) do seedCount = seedCount + 1 end
+    for _ in pairs(gear) do gearCount = gearCount + 1 end
+    print("📊 DATA FOUND: Seeds:" .. (seedCount > 0 and (seedCount .. " items") or "NONE")
+        .. " | Gear:" .. (gearCount > 0 and (gearCount .. " items") or "NONE")
         .. " | Weather:" .. weather)
 
     return data
@@ -217,12 +222,17 @@ end
 -- CHANGE DETECTION
 local function hasChanges(oldData, newData)
     if oldData.weather.type ~= newData.weather.type then return true end
-    for name, stock in pairs(newData.seeds) do
-        if oldData.seeds[name] ~= stock then return true end
+
+    local shopTypes = {"seeds", "gear"}
+    for _, shopType in ipairs(shopTypes) do
+        for name, stock in pairs(newData[shopType]) do
+            if oldData[shopType][name] ~= stock then return true end
+        end
+        for name in pairs(oldData[shopType]) do
+            if newData[shopType][name] == nil then return true end
+        end
     end
-    for name in pairs(oldData.seeds) do
-        if newData.seeds[name] == nil then return true end
-    end
+
     return false
 end
 
@@ -252,6 +262,7 @@ local function startMonitoring()
 
     local initialData = collectAllData()
     Cache.seeds = initialData.seeds
+    Cache.gear = initialData.gear
     Cache.lastHeartbeat = os.time()
     Cache.lastDiscordUpdate = os.time()
 
@@ -265,12 +276,14 @@ local function startMonitoring()
             local now = os.time()
             local oldData = {
                 weather = {type = Cache.currentWeather, duration = Cache.weatherDuration},
-                seeds = Cache.seeds
+                seeds = Cache.seeds,
+                gear = Cache.gear
             }
             local changes = hasChanges(oldData, currentData)
 
             if sendToAPI(currentData) then
                 Cache.seeds = currentData.seeds
+                Cache.gear = currentData.gear
                 if changes then print("🔄 CHANGES DETECTED & SENT") end
             end
 
