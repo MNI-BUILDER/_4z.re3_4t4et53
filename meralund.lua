@@ -1,5 +1,5 @@
--- GROW A GARDEN 2 MONITOR - SeedShop only, /api/data2, single-pass scraping
-print("🌱 Starting GaG2 Monitor (SeedShop) with single-pass scraping...")
+-- GROW A GARDEN 2 MONITOR - SeedShop + UI-based Weather, /api/data2, single-pass scraping
+print("🌱 Starting GaG2 Monitor (SeedShop + Weather) with single-pass scraping...")
 
 -- Configuration
 local API_ENDPOINT = "http://204.12.233.39:3000/api/data2"
@@ -84,17 +84,14 @@ end
 -- Find the scroll container inside a shop UI, class-agnostic.
 -- GaG2 path: SeedShop.Frame.NormalShop  (NormalShop may be Frame OR ScrollingFrame)
 local function findContainer(shopUI)
-    -- Preferred explicit path
     local frame = shopUI:FindFirstChild("Frame")
     if frame then
         local normal = frame:FindFirstChild("NormalShop")
         if normal then return normal end
-        -- fall back to a ScrollingFrame directly under Frame
         for _, child in ipairs(frame:GetChildren()) do
             if child:IsA("ScrollingFrame") then return child end
         end
     end
-    -- Last resort: first scroll/content frame anywhere
     for _, child in ipairs(shopUI:GetDescendants()) do
         if child:IsA("ScrollingFrame") or child.Name == "ContentFrame" or child.Name == "NormalShop" then
             return child
@@ -114,7 +111,7 @@ local function readStock(itemFrame)
     return 0
 end
 
--- SINGLE-PASS scrape: walk the container's item children ONCE, read each item's stock.
+-- SINGLE-PASS scrape: walk the container's item children ONCE.
 local function collectShop(shopName)
     local result = {}
     local ok = pcall(function()
@@ -133,9 +130,30 @@ local function collectShop(shopName)
     return result
 end
 
+-- WEATHER (GaG2) - read which frame under WeatherUI.Frame is Visible
+local function getActiveWeather()
+    local active = {}
+    pcall(function()
+        local weatherUI = LocalPlayer.PlayerGui:FindFirstChild("WeatherUI")
+        if not weatherUI then return end
+        local frame = weatherUI:FindFirstChild("Frame")
+        if not frame then return end
+
+        for _, child in ipairs(frame:GetChildren()) do
+            if child:IsA("Frame") and not shouldIgnoreItem(child.Name) and child.Visible then
+                table.insert(active, child.Name)
+            end
+        end
+    end)
+
+    if #active == 0 then return "None" end
+    return table.concat(active, ", ")
+end
+
 -- COLLECT ALL DATA
 local function collectAllData()
     local seeds = collectShop("SeedShop")
+    local weather = getActiveWeather()
 
     local data = {
         sessionId = Cache.sessionId,
@@ -143,13 +161,16 @@ local function collectAllData()
         updateNumber = Cache.updateCounter + 1,
         playerName = LocalPlayer.Name,
         userId = LocalPlayer.UserId,
-        weather = {type = Cache.currentWeather, duration = Cache.weatherDuration},
+        weather = {type = weather, duration = 0},
         seeds = seeds
     }
 
+    Cache.currentWeather = weather
+
     local count = 0
     for _ in pairs(seeds) do count = count + 1 end
-    print("📊 DATA FOUND: Seeds:" .. (count > 0 and (count .. " items") or "NONE"))
+    print("📊 DATA FOUND: Seeds:" .. (count > 0 and (count .. " items") or "NONE")
+        .. " | Weather:" .. weather)
 
     return data
 end
@@ -196,11 +217,9 @@ end
 -- CHANGE DETECTION
 local function hasChanges(oldData, newData)
     if oldData.weather.type ~= newData.weather.type then return true end
-    -- new keys / changed stock
     for name, stock in pairs(newData.seeds) do
         if oldData.seeds[name] ~= stock then return true end
     end
-    -- removed keys
     for name in pairs(oldData.seeds) do
         if newData.seeds[name] == nil then return true end
     end
@@ -224,21 +243,11 @@ local function setupAntiAFK()
     end)
 end
 
-local function setupWeatherListener()
-    pcall(function()
-        game.ReplicatedStorage.GameEvents.WeatherEventStarted.OnClientEvent:Connect(function(weatherType, duration)
-            Cache.currentWeather = weatherType or "None"
-            Cache.weatherDuration = duration or 0
-        end)
-    end)
-end
-
 -- MAIN
 local function startMonitoring()
     print("🌱 GaG2 MONITOR STARTED | /api/data2 | Session: " .. Cache.sessionId)
 
     setupAntiAFK()
-    setupWeatherListener()
     setupCrashDetection()
 
     local initialData = collectAllData()
