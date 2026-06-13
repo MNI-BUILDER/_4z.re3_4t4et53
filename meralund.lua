@@ -1,5 +1,5 @@
--- GROW A GARDEN 2 MONITOR - SeedShop + GearShop + UI-based Weather, /api/data2, single-pass scraping
-print("🌱 Starting GaG2 Monitor (Seed + Gear + Weather) with single-pass scraping...")
+-- GROW A GARDEN 2 MONITOR - Seed + Gear + Crate + UI-based Weather, /api/data2, single-pass scraping
+print("🌱 Starting GaG2 Monitor (Seed + Gear + Crate + Weather) with single-pass scraping...")
 
 -- Configuration
 local API_ENDPOINT = "http://204.12.233.39:3000/api/data2"
@@ -22,7 +22,8 @@ local Cache = {
     currentWeather = "None",
     weatherDuration = 0,
     seeds = {},
-    gear = {}
+    gear = {},
+    crate = {}
 }
 
 -- UI element patterns to ignore
@@ -155,6 +156,7 @@ end
 local function collectAllData()
     local seeds = collectShop("SeedShop")
     local gear = collectShop("GearShop")
+    local crate = collectShop("CrateShop")
     local weather = getActiveWeather()
 
     local data = {
@@ -165,16 +167,19 @@ local function collectAllData()
         userId = LocalPlayer.UserId,
         weather = {type = weather, duration = 0},
         seeds = seeds,
-        gear = gear
+        gear = gear,
+        crate = crate
     }
 
     Cache.currentWeather = weather
 
-    local seedCount, gearCount = 0, 0
+    local seedCount, gearCount, crateCount = 0, 0, 0
     for _ in pairs(seeds) do seedCount = seedCount + 1 end
     for _ in pairs(gear) do gearCount = gearCount + 1 end
+    for _ in pairs(crate) do crateCount = crateCount + 1 end
     print("📊 DATA FOUND: Seeds:" .. (seedCount > 0 and (seedCount .. " items") or "NONE")
         .. " | Gear:" .. (gearCount > 0 and (gearCount .. " items") or "NONE")
+        .. " | Crate:" .. (crateCount > 0 and (crateCount .. " items") or "NONE")
         .. " | Weather:" .. weather)
 
     return data
@@ -223,7 +228,7 @@ end
 local function hasChanges(oldData, newData)
     if oldData.weather.type ~= newData.weather.type then return true end
 
-    local shopTypes = {"seeds", "gear"}
+    local shopTypes = {"seeds", "gear", "crate"}
     for _, shopType in ipairs(shopTypes) do
         for name, stock in pairs(newData[shopType]) do
             if oldData[shopType][name] ~= stock then return true end
@@ -263,6 +268,7 @@ local function startMonitoring()
     local initialData = collectAllData()
     Cache.seeds = initialData.seeds
     Cache.gear = initialData.gear
+    Cache.crate = initialData.crate
     Cache.lastHeartbeat = os.time()
     Cache.lastDiscordUpdate = os.time()
 
@@ -277,13 +283,15 @@ local function startMonitoring()
             local oldData = {
                 weather = {type = Cache.currentWeather, duration = Cache.weatherDuration},
                 seeds = Cache.seeds,
-                gear = Cache.gear
+                gear = Cache.gear,
+                crate = Cache.crate
             }
             local changes = hasChanges(oldData, currentData)
 
             if sendToAPI(currentData) then
                 Cache.seeds = currentData.seeds
                 Cache.gear = currentData.gear
+                Cache.crate = currentData.crate
                 if changes then print("🔄 CHANGES DETECTED & SENT") end
             end
 
